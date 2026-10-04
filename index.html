@@ -27,6 +27,11 @@ button:disabled{opacity:.5}
 #warn{position:fixed;inset:0;background:rgba(0,0,0,.88);display:none;align-items:center;justify-content:center;text-align:center;padding:24px;z-index:99}
 #warn p,#warn h1{color:#fff}
 .hide{display:none}
+footer{text-align:center;color:var(--mut);font:.85rem system-ui,sans-serif;padding:18px 0 8px}
+.nav{display:flex;gap:10px}.nav button{flex:1}
+.sec{background:transparent;color:var(--ink);border:1px solid var(--line)}
+.rv{display:block;width:100%;text-align:left;background:transparent;color:var(--ink);border:1px solid var(--line);margin:6px 0;min-height:44px}
+.rv.ok{border-color:var(--acc)}
 .err{color:var(--bad);font-family:system-ui,sans-serif}
 .guia{border-left:4px solid var(--acc);padding-left:12px}
 </style>
@@ -37,13 +42,14 @@ button:disabled{opacity:.5}
  <h1 id="title"></h1>
  <div class="guia" id="guia"></div>
  <ul>
+  <li>Selecciona la respuesta más adecuada. Solo una opción es correcta.</li>
   <li>No cambies de app, pestaña ni ventana durante el examen.</li>
   <li id="regla"></li>
   <li>Copiar, pegar y clic derecho están bloqueados.</li>
  </ul>
  <label class="f" for="nombre">Nombre completo</label>
  <input type="text" id="nombre" autocomplete="off">
- <label class="f" for="codigo">Código o documento</label>
+ <label class="f" for="codigo">Número de documento</label>
  <input type="text" id="codigo" autocomplete="off">
  <label class="f" for="sem">Semestre</label>
  <select id="sem"></select>
@@ -57,10 +63,11 @@ button:disabled{opacity:.5}
 <section id="exam" class="hide">
  <div class="bar"><span>Pregunta <b id="pos"></b></span><span>Tiempo <b id="time"></b></span><span class="v">Infracciones <b id="vc">0</b></span></div>
  <div class="card" id="qbox"></div>
- <button id="next">Siguiente</button>
+ <div class="nav"><button id="prev" class="sec hide">Anterior</button><button id="next">Siguiente</button></div>
 </section>
 
-<section id="end" class="card hide"><h1>Examen enviado</h1><p id="endp"></p><button id="retry" class="hide">Reintentar envío</button></section>
+<section id="end" class="card hide"><h1 id="endt">Examen enviado</h1><p id="endp"></p><button id="retry" class="hide">Reintentar envío</button></section>
+<footer>kerwin.Gutierrezing</footer>
 </main>
 
 <div id="warn"><div style="max-width:420px">
@@ -71,7 +78,7 @@ button:disabled{opacity:.5}
 <script>
 /* ============ CONFIGURACIÓN ============ */
 const CONFIG={
-  titulo:"Evaluación",
+  titulo:"Examen de selección múltiple – Técnico Auxiliar en Enfermería",
   semestres:["1","2"],         // opciones del menú; deben coincidir con la columna semestre de tu hoja
   endpoint:"https://script.google.com/macros/s/AKfycbxlEoM4IgJMqtJClnoplZMP5r8QsZ4ildge96Zk4Yf1oNskZz2ihZpnUmKBk2b_6bpjsA/exec",                 // URL /exec de tu Apps Script (obligatoria)
   segPorPregunta:0,            // 0 = sin límite por pregunta
@@ -119,16 +126,27 @@ $("start").onclick=async()=>{
 };
 function tick(){const m=Math.floor(rest/60),s=rest%60;$("time").textContent=m+":"+String(s).padStart(2,"0")}
 
+let modo="preg";
 function mostrar(){
-  const p=P[idx];$("pos").textContent=(idx+1)+" / "+P.length;
+  modo="preg";const p=P[idx];$("pos").textContent=(idx+1)+" / "+P.length;
   $("qbox").innerHTML=`<p class="q">${p.q}</p>`+p.ord.map(i=>`<label class="opt"><input type="radio" name="o" value="${i}" ${resp[p.id]===i?"checked":""}> ${p.o[i]}</label>`).join("");
-  $("next").textContent=idx===P.length-1?"Enviar examen":"Siguiente";
+  $("next").textContent=idx===P.length-1?"Revisar y enviar":"Siguiente";
+  $("prev").textContent="Anterior";$("prev").classList.toggle("hide",idx===0||CONFIG.segPorPregunta>0);
   clearTimeout(tq);
   if(CONFIG.segPorPregunta>0)tq=setTimeout(avanzar,CONFIG.segPorPregunta*1000);
 }
 function guardar(){const s=document.querySelector("input[name=o]:checked");if(s)resp[P[idx].id]=+s.value}
-function avanzar(){guardar();if(idx<P.length-1){idx++;mostrar()}else cerrar("Examen completado.")}
-$("next").onclick=avanzar;
+function avanzar(){guardar();if(idx<P.length-1){idx++;mostrar()}else revisar()}
+function revisar(){
+  modo="rev";clearTimeout(tq);
+  const sin=P.filter(p=>resp[p.id]===undefined).length;
+  $("pos").textContent="Revisión";
+  $("qbox").innerHTML=`<p class="q">Revisa tus respuestas</p><p>${sin?`Tienes ${sin} pregunta(s) sin responder.`:"Respondiste todas las preguntas."} Toca una pregunta para ir a ella y cambiar tu respuesta.</p>`+P.map((p,i)=>`<button class="rv ${resp[p.id]!==undefined?"ok":""}" data-i="${i}">Pregunta ${i+1}: ${resp[p.id]!==undefined?"respondida":"sin responder"}</button>`).join("");
+  $("next").textContent="Enviar examen";$("prev").textContent="Volver a las preguntas";$("prev").classList.remove("hide");
+}
+$("qbox").onclick=e=>{const b=e.target.closest(".rv");if(b&&modo==="rev"){idx=+b.dataset.i;mostrar()}};
+$("next").onclick=()=>modo==="rev"?cerrar("Examen completado."):avanzar();
+$("prev").onclick=()=>{if(modo==="rev"){idx=P.length-1;mostrar()}else if(idx>0){guardar();idx--;mostrar()}};
 
 /* ---- Salidas: se mide la duración de cada una ---- */
 function salir(m){if(!activo||fin||out)return;out={m,t:Date.now()}}
@@ -164,12 +182,20 @@ window.addEventListener("beforeunload",e=>{if(activo&&!fin){e.preventDefault();e
 
 /* ---- Cierre y envío (la nota la calcula Apps Script) ---- */
 async function enviar(){
-  $("retry").classList.add("hide");$("endp").textContent="Enviando respuestas…";
-  for(let i=0;i<3;i++){
-    try{const r=await post(paquete);if(r.ok){$("endp").textContent=paquete.motivoCierre+" Tus respuestas fueron enviadas.";return}}catch(_){}
-    await new Promise(r=>setTimeout(r,2000));
+  $("retry").classList.add("hide");$("endt").textContent="Enviando…";$("endp").textContent="Enviando respuestas. No cierres esta página.";
+  let r=null;
+  for(let i=0;i<3&&!(r&&r.ok);i++){
+    try{r=await post(paquete)}catch(_){r=null}
+    if(!(r&&r.ok))await new Promise(x=>setTimeout(x,2000));
   }
-  $("endp").textContent="No se pudo enviar. No cierres esta página: revisa tu internet y pulsa reintentar.";$("retry").classList.remove("hide");
+  if(r&&r.ok){
+    $("endt").textContent="✔ Evaluación enviada y registrada";
+    $("endp").innerHTML=`${paquete.motivoCierre}<br><br><b style="font-size:1.6rem;color:var(--ink)">Nota: ${r.nota} / 5</b><br>Aciertos: ${r.aciertos} de ${r.total}<br>Infracciones registradas: ${paquete.infracciones}<br>Enviado: ${new Date().toLocaleString("es-CO")}<br><br>Ya puedes cerrar esta página.`;
+    return;
+  }
+  $("endt").textContent="No pudimos confirmar el envío";
+  $("endp").textContent="Es posible que tus respuestas ya se hayan guardado. No cierres esta página: revisa tu internet y pulsa «Reintentar envío».";
+  $("retry").classList.remove("hide");
 }
 $("retry").onclick=enviar;
 async function cerrar(motivo){
