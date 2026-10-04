@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Evaluación</title>
+<style>
+:root{--bg:#f3f5f4;--card:#fff;--ink:#1d2b29;--mut:#56655f;--acc:#0f6b5c;--bad:#b3261e;--line:#d5dcda}
+@media(prefers-color-scheme:dark){:root{--bg:#121918;--card:#1b2523;--ink:#e6efed;--mut:#9fb0ad;--acc:#4cc2ad;--bad:#ff8a80;--line:#2c3a37}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.55 Georgia,serif;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+main{max-width:680px;margin:0 auto;padding:16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:20px;margin-bottom:14px}
+h1{font-size:1.5rem;margin:0 0 8px}
+p,li{color:var(--mut)}
+input[type=text]{width:100%;padding:12px;border:1px solid var(--line);border-radius:6px;font:inherit;background:var(--bg);color:var(--ink);margin:4px 0 10px;-webkit-user-select:text;user-select:text}
+label.f{font-weight:bold;color:var(--ink);font-size:.95rem}
+button{background:var(--acc);color:#fff;border:0;border-radius:8px;padding:14px 22px;font:inherit;cursor:pointer;min-height:48px}
+button:disabled{opacity:.5}
+:focus-visible{outline:3px solid var(--acc);outline-offset:2px}
+.bar{display:flex;justify-content:space-between;gap:8px;position:sticky;top:0;background:var(--bg);padding:10px 0;z-index:5;font:.9rem system-ui,sans-serif;color:var(--ink)}
+.v{color:var(--bad)}
+.opt{display:block;padding:14px;border:1px solid var(--line);border-radius:8px;margin:10px 0;cursor:pointer;color:var(--ink)}
+.opt:has(input:checked){border-color:var(--acc);background:color-mix(in srgb,var(--acc) 14%,transparent)}
+.q{font-size:1.15rem;color:var(--ink);margin:0 0 6px}
+#warn{position:fixed;inset:0;background:rgba(0,0,0,.88);display:none;align-items:center;justify-content:center;text-align:center;padding:24px;z-index:99}
+#warn p,#warn h1{color:#fff}
+.hide{display:none}
+.err{color:var(--bad);font-family:system-ui,sans-serif}
+.guia{border-left:4px solid var(--acc);padding-left:12px}
+</style>
+</head>
+<body>
+<main>
+<section id="intro" class="card">
+ <h1 id="title"></h1>
+ <div class="guia" id="guia"></div>
+ <ul>
+  <li>No cambies de app, pestaña ni ventana durante el examen.</li>
+  <li id="regla"></li>
+  <li>Copiar, pegar y clic derecho están bloqueados.</li>
+ </ul>
+ <label class="f" for="nombre">Nombre completo</label>
+ <input type="text" id="nombre" autocomplete="off">
+ <label class="f" for="codigo">Código o documento</label>
+ <input type="text" id="codigo" autocomplete="off">
+ <label class="opt"><input type="checkbox" id="ok"> Ya activé el bloqueo indicado arriba y acepto las reglas.</label>
+ <p id="err" class="err"></p>
+ <button id="start">Comenzar examen</button>
+</section>
+
+<section id="exam" class="hide">
+ <div class="bar"><span>Pregunta <b id="pos"></b></span><span>Tiempo <b id="time"></b></span><span class="v">Infracciones <b id="vc">0</b></span></div>
+ <div class="card" id="qbox"></div>
+ <button id="next">Siguiente</button>
+</section>
+
+<section id="end" class="card hide"><h1>Examen enviado</h1><p id="endp"></p></section>
+</main>
+
+<div id="warn"><div style="max-width:420px">
+ <h1>Volviste al examen</h1><p id="wmsg"></p>
+ <button id="resume">Continuar</button>
+</div></div>
+
+<script>
+/* ============ CONFIGURACIÓN ============ */
+const CONFIG={
+  titulo:"Evaluación de ejemplo",
+  minutos:20,
+  segPorPregunta:0,        // 0 = sin límite por pregunta; ej. 60 avanza sola a los 60 s
+  toleranciaSeg:10,        // salidas más cortas que esto se registran pero no cuentan como infracción
+  maxInfracciones:3,
+  pantallaCompletaEnPC:true,
+  endpoint:""              // URL /exec de tu Apps Script
+};
+// Las respuestas correctas NO van aquí: están en Code.gs
+const PREGUNTAS=[
+ {id:"q1",q:"¿Cuál es la capital de Colombia?",o:["Medellín","Bogotá","Cali","Cúcuta"]},
+ {id:"q2",q:"¿Cuánto es 7 × 8?",o:["54","56","64","48"]},
+ {id:"q3",q:"¿Qué protocolo cifra la navegación web?",o:["HTTP","FTP","HTTPS","SMTP"]},
+ {id:"q4",q:"¿Qué extensión tiene una página web?",o:[".html",".exe",".mp3",".zip"]},
+ {id:"q5",q:"¿Cuál es el resultado de 100 ÷ 4?",o:["20","25","40","50"]}
+];
+/* ======================================= */
+const $=id=>document.getElementById(id);
+const ua=navigator.userAgent;
+const disp=/android/i.test(ua)?"android":(/iphone|ipad|ipod/i.test(ua)||(navigator.platform==="MacIntel"&&navigator.maxTouchPoints>1))?"ios":"pc";
+const needFS=disp==="pc"&&CONFIG.pantallaCompletaEnPC&&!!document.documentElement.requestFullscreen;
+const GUIAS={
+ android:"<b>Antes de empezar (Android):</b> activa «Fijar pantalla». Ajustes → Seguridad → Fijar pantalla (o «Anclar app»), abre esta página, toca el botón de apps recientes, el ícono de Chrome y «Fijar». Para salir se necesita tu PIN o gesto.",
+ ios:"<b>Antes de empezar (iPhone):</b> activa «Acceso guiado». Ajustes → Accesibilidad → Acceso guiado, abre esta página en Safari y pulsa tres veces el botón lateral (o inicio) para iniciarlo.",
+ pc:"<b>Antes de empezar (computador):</b> usa Chrome o Edge. El examen se hace en pantalla completa; si sales, queda registrado."
+};
+$("title").textContent=CONFIG.titulo;
+$("guia").innerHTML=GUIAS[disp];
+$("regla").textContent=`Salir más de ${CONFIG.toleranciaSeg} segundos cuenta como infracción. Con ${CONFIG.maxInfracciones} infracciones el examen se cierra y se envía.`;
+
+const shuf=a=>{a=a.slice();for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a};
+let P=[],idx=0,resp={},inc=0,salidas=[],activo=false,fin=false,rest=0,tm=null,tq=null,inicio=null,out=null;
+
+$("start").onclick=async()=>{
+  const n=$("nombre").value.trim(),c=$("codigo").value.trim();
+  if(!n||!c){$("err").textContent="Escribe tu nombre y tu código.";return}
+  if(!$("ok").checked){$("err").textContent="Confirma que activaste el bloqueo y aceptas las reglas.";return}
+  if(needFS){try{await document.documentElement.requestFullscreen()}catch(_){}
+    if(!document.fullscreenElement){$("err").textContent="No se pudo activar pantalla completa. Usa Chrome o Edge.";return}}
+  P=shuf(PREGUNTAS).map(p=>({...p,ord:shuf(p.o.map((_,i)=>i))}));
+  inicio=new Date();rest=CONFIG.minutos*60;activo=true;
+  $("intro").classList.add("hide");$("exam").classList.remove("hide");
+  tm=setInterval(()=>{rest--;tick();if(rest<=0)cerrar("Se acabó el tiempo.")},1000);
+  tick();mostrar();
+};
+function tick(){const m=Math.floor(rest/60),s=rest%60;$("time").textContent=m+":"+String(s).padStart(2,"0")}
+
+function mostrar(){
+  const p=P[idx];$("pos").textContent=(idx+1)+" / "+P.length;
+  $("qbox").innerHTML=`<p class="q">${p.q}</p>`+p.ord.map(i=>`<label class="opt"><input type="radio" name="o" value="${i}" ${resp[p.id]===i?"checked":""}> ${p.o[i]}</label>`).join("");
+  $("next").textContent=idx===P.length-1?"Enviar examen":"Siguiente";
+  clearTimeout(tq);
+  if(CONFIG.segPorPregunta>0)tq=setTimeout(()=>avanzar(),CONFIG.segPorPregunta*1000);
+}
+function guardar(){const s=document.querySelector("input[name=o]:checked");if(s)resp[P[idx].id]=+s.value}
+function avanzar(){guardar();if(idx<P.length-1){idx++;mostrar()}else cerrar("Examen completado.")}
+$("next").onclick=avanzar;
+
+/* ---- Salidas: se mide la duración de cada una ---- */
+function salir(m){if(!activo||fin||out)return;out={m,t:Date.now()}}
+function volver(){
+  if(!out||fin)return;
+  if(needFS&&!document.fullscreenElement)return;     // sigue fuera hasta volver a pantalla completa
+  const s=Math.round((Date.now()-out.t)/1000);
+  salidas.push({motivo:out.m,segundos:s,hora:new Date().toISOString()});out=null;
+  let msg;
+  if(s>CONFIG.toleranciaSeg){inc++;$("vc").textContent=inc;
+    if(inc>=CONFIG.maxInfracciones){cerrar("Máximo de infracciones alcanzado.");return}
+    msg=`Estuviste fuera ${s} segundos. Infracción ${inc} de ${CONFIG.maxInfracciones}.`}
+  else msg=`Estuviste fuera ${s} segundos. Quedó registrado pero no cuenta como infracción.`;
+  $("wmsg").textContent=msg;$("warn").style.display="flex";
+}
+document.addEventListener("visibilitychange",()=>document.hidden?salir("cambio de app o pestaña"):volver());
+window.addEventListener("blur",()=>salir("la ventana perdió el foco"));
+window.addEventListener("focus",volver);
+document.addEventListener("fullscreenchange",()=>{if(needFS&&activo&&!fin&&!document.fullscreenElement)salir("salió de pantalla completa")});
+$("resume").onclick=async()=>{
+  if(needFS&&!document.fullscreenElement){try{await document.documentElement.requestFullscreen()}catch(_){}}
+  $("warn").style.display="none";volver();
+};
+
+/* ---- Bloqueos ---- */
+["contextmenu","copy","cut","paste","dragstart","selectstart"].forEach(e=>document.addEventListener(e,ev=>{if(ev.target.tagName!=="INPUT")ev.preventDefault()}));
+document.addEventListener("keydown",e=>{if(!activo)return;const k=e.key.toLowerCase();
+  if(((e.ctrlKey||e.metaKey)&&["c","v","x","p","s","u","a"].includes(k))||e.key==="F12"||(e.ctrlKey&&e.shiftKey&&["i","j","c"].includes(k)))e.preventDefault()});
+document.addEventListener("keyup",e=>{if(activo&&e.key==="PrintScreen"){try{navigator.clipboard.writeText("Captura no permitida")}catch(_){}
+  salidas.push({motivo:"PrintScreen",segundos:0,hora:new Date().toISOString()});inc++;$("vc").textContent=inc;if(inc>=CONFIG.maxInfracciones)cerrar("Máximo de infracciones alcanzado.")}});
+window.addEventListener("beforeprint",()=>{if(activo)salidas.push({motivo:"intento de impresión",segundos:0,hora:new Date().toISOString()})});
+window.addEventListener("beforeunload",e=>{if(activo&&!fin){e.preventDefault();e.returnValue=""}});
+
+/* ---- Cierre y envío (la nota la calcula Apps Script) ---- */
+async function cerrar(motivo){
+  if(fin)return;fin=true;activo=false;clearInterval(tm);clearTimeout(tq);
+  if(document.querySelector("input[name=o]:checked")&&P[idx])guardar();
+  $("warn").style.display="none";
+  if(document.fullscreenElement)document.exitFullscreen().catch(()=>{});
+  $("exam").classList.add("hide");$("end").classList.remove("hide");
+  const datos={nombre:$("nombre").value.trim(),codigo:$("codigo").value.trim(),dispositivo:disp,inicio:inicio.toISOString(),fin:new Date().toISOString(),motivoCierre:motivo,
+    infracciones:inc,salidas,respuestas:PREGUNTAS.map(p=>({id:p.id,eleccion:resp[p.id]===undefined?-1:resp[p.id]}))};
+  let ok=false;
+  if(CONFIG.endpoint){try{await fetch(CONFIG.endpoint,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain"},body:JSON.stringify(datos)});ok=true}catch(_){}}
+  $("endp").textContent=motivo+" "+(CONFIG.endpoint?(ok?"Tus respuestas fueron enviadas.":"No se pudo enviar. Avisa a tu docente ahora."):"Modo de prueba: no se envió a ningún lugar.");
+}
+</script>
+</body>
+</html>
