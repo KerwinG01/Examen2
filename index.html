@@ -27,6 +27,7 @@ button:disabled{opacity:.5}
 #warn{position:fixed;inset:0;background:rgba(0,0,0,.88);display:none;align-items:center;justify-content:center;text-align:center;padding:24px;z-index:99}
 #warn p,#warn h1{color:#fff}
 .hide{display:none}
+.fb{border-left:4px solid var(--line);padding:6px 12px;margin:12px 0}.fb.ok{border-color:var(--acc)}.fb.mal{border-color:var(--bad)}.fb p{margin:4px 0;color:var(--ink)}
 footer{text-align:center;color:var(--mut);font:.85rem system-ui,sans-serif;padding:18px 0 8px}
 .nav{display:flex;gap:10px}.nav button{flex:1}
 .sec{background:transparent;color:var(--ink);border:1px solid var(--line)}
@@ -66,7 +67,7 @@ footer{text-align:center;color:var(--mut);font:.85rem system-ui,sans-serif;paddi
  <div class="nav"><button id="prev" class="sec hide">Anterior</button><button id="next">Siguiente</button></div>
 </section>
 
-<section id="end" class="card hide"><h1 id="endt">Examen enviado</h1><p id="endp"></p><button id="retry" class="hide">Reintentar envío</button></section>
+<section id="end" class="card hide"><h1 id="endt">Examen enviado</h1><p id="endp"></p><button id="retry" class="hide">Reintentar envío</button><div id="retro"></div></section>
 <footer>kerwin.Gutierrezing</footer>
 </main>
 
@@ -130,7 +131,7 @@ let modo="preg";
 function mostrar(){
   modo="preg";const p=P[idx];$("pos").textContent=(idx+1)+" / "+P.length;
   $("qbox").innerHTML=`<p class="q">${p.q}</p>`+p.ord.map(i=>`<label class="opt"><input type="radio" name="o" value="${i}" ${resp[p.id]===i?"checked":""}> ${p.o[i]}</label>`).join("");
-  $("next").textContent=idx===P.length-1?"Revisar y enviar":"Siguiente";
+  $("next").textContent=idx===P.length-1?"Guardar y revisar":"Siguiente";
   $("prev").textContent="Anterior";$("prev").classList.toggle("hide",idx===0||CONFIG.segPorPregunta>0);
   clearTimeout(tq);
   if(CONFIG.segPorPregunta>0)tq=setTimeout(avanzar,CONFIG.segPorPregunta*1000);
@@ -141,7 +142,7 @@ function revisar(){
   modo="rev";clearTimeout(tq);
   const sin=P.filter(p=>resp[p.id]===undefined).length;
   $("pos").textContent="Revisión";
-  $("qbox").innerHTML=`<p class="q">Revisa tus respuestas</p><p>${sin?`Tienes ${sin} pregunta(s) sin responder.`:"Respondiste todas las preguntas."} Toca una pregunta para ir a ella y cambiar tu respuesta.</p>`+P.map((p,i)=>`<button class="rv ${resp[p.id]!==undefined?"ok":""}" data-i="${i}">Pregunta ${i+1}: ${resp[p.id]!==undefined?"respondida":"sin responder"}</button>`).join("");
+  $("qbox").innerHTML=`<p class="q">Revisa tus respuestas</p><p>${sin?`Tienes ${sin} pregunta(s) sin responder.`:"Respondiste todas las preguntas."} Toca una pregunta para ir a ella y cambiar tu respuesta.</p>`+P.map((p,i)=>`<button class="rv ${resp[p.id]!==undefined?"ok":""}" data-i="${i}">Pregunta ${i+1}: ${resp[p.id]!==undefined?"✔ "+String(p.o[resp[p.id]]).slice(0,70):"sin responder"}</button>`).join("");
   $("next").textContent="Enviar examen";$("prev").textContent="Volver a las preguntas";$("prev").classList.remove("hide");
 }
 $("qbox").onclick=e=>{const b=e.target.closest(".rv");if(b&&modo==="rev"){idx=+b.dataset.i;mostrar()}};
@@ -181,6 +182,12 @@ window.addEventListener("beforeprint",()=>{if(activo)salidas.push({motivo:"inten
 window.addEventListener("beforeunload",e=>{if(activo&&!fin){e.preventDefault();e.returnValue=""}});
 
 /* ---- Cierre y envío (la nota la calcula Apps Script) ---- */
+function mostrarRetro(d){
+  const el=$("retro");if(!d){el.innerHTML="<p>La retroalimentación por pregunta no está habilitada para este examen.</p>";return}
+  const m={};d.forEach(x=>m[x.id]=x);
+  el.innerHTML="<h2>Retroalimentación</h2>"+P.map((p,i)=>{const x=m[p.id];if(!x)return"";
+    return `<div class="fb ${x.ok?"ok":"mal"}"><p class="q">${i+1}. ${x.q}</p><p>${x.ok?"✔ Correcta":"✘ Incorrecta"}. Tu respuesta: <b>${x.elegida||"Sin responder"}</b></p>${x.ok?"":`<p>Respuesta correcta: <b>${x.correcta}</b></p>`}</div>`}).join("");
+}
 async function enviar(){
   $("retry").classList.add("hide");$("endt").textContent="Enviando…";$("endp").textContent="Enviando respuestas. No cierres esta página.";
   let r=null;
@@ -191,6 +198,7 @@ async function enviar(){
   if(r&&r.ok){
     $("endt").textContent="✔ Evaluación enviada y registrada";
     $("endp").innerHTML=`${paquete.motivoCierre}<br><br><b style="font-size:1.6rem;color:var(--ink)">Nota: ${r.nota} / 5</b><br>Aciertos: ${r.aciertos} de ${r.total}<br>Infracciones registradas: ${paquete.infracciones}<br>Enviado: ${new Date().toLocaleString("es-CO")}<br><br>Ya puedes cerrar esta página.`;
+    mostrarRetro(r.detalle);
     return;
   }
   $("endt").textContent="No pudimos confirmar el envío";
