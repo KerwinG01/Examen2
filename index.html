@@ -103,7 +103,50 @@ $("sem").innerHTML='<option value="">Selecciona tu semestre</option>'+CONFIG.sem
 if(URLK)$("kbox").style.display="none";
 $("regla").textContent=`Cada salida tiene una tolerancia de hasta ${CONFIG.toleranciaSeg} segundos. Si supera esa tolerancia, contará como una infracción. Si al regresar has permanecido fuera ${CONFIG.cierreSalidaSeg} segundos o más, la evaluación se cerrará y se enviará con las respuestas registradas.`;
 const shuf=a=>{a=a.slice();for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a};
-const post=async o=>{const r=await fetch(CONFIG.endpoint,{method:"POST",headers:{"Content-Type":"text/plain"},body:JSON.stringify(o)});return r.json()};
+const post = async (o) => {
+  const maxIntentos = 3;
+  let ultimoError = null;
+
+  for (let intento = 1; intento <= maxIntentos; intento++) {
+    try {
+      const respuesta = await fetch(CONFIG.endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "text/plain;charset=utf-8"
+        },
+        body: JSON.stringify(o)
+      });
+
+      const texto = await respuesta.text();
+
+      let resultado;
+
+      try {
+        resultado = JSON.parse(texto);
+      } catch (error) {
+        throw new Error("El servidor devolvió una respuesta no válida.");
+      }
+
+      return resultado;
+
+    } catch (error) {
+      ultimoError = error;
+      console.error(
+        "Error de conexión. Intento " + intento + " de " + maxIntentos,
+        error
+      );
+
+      if (intento < maxIntentos) {
+        await new Promise(resolve =>
+          setTimeout(resolve, intento * 3000)
+        );
+      }
+    }
+  }
+
+  throw ultimoError || new Error("No se pudo conectar con el servidor.");
+};
+ 
 let P=[],idx=0,resp={},inc=0,salidas=[],activo=false,fin=false,rest=0,tm=null,tq=null,inicio=null,out=null,paquete=null;
 function ponerMarca(nombre){
  const el=$("marcaAgua");el.replaceChildren();
