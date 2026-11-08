@@ -1,4 +1,17 @@
 <!DOCTYPE html>
+<!--
+  EXAMEN EN LÍNEA — index.html para GitHub Pages
+  Versión 2026-11-08-B (compatible con Code.gs versión 2026-11-08-B)
+
+  CAMBIOS RESPECTO A LA VERSIÓN ANTERIOR (buscar "[CAMBIO n]" en el código):
+   [CAMBIO 1] normCed(): limpia la cédula (quita puntos, espacios, guiones) antes de enviarla.
+   [CAMBIO 2] SESION: código aleatorio por pestaña; evita el bloqueo si la red falla al iniciar.
+   [CAMBIO 3] Validación de longitud de la cédula (5 a 15 caracteres).
+   [CAMBIO 4] El envío final usa la misma cédula normalizada.
+   [CAMBIO 5] Si el envío falla, se muestra el motivo que devuelve el servidor.
+   [CAMBIO 6] Texto de ayuda en el campo de documento ("sin puntos ni espacios").
+  Todo lo demás (diseño, normas, control de salidas, temporizador) es igual al original.
+-->
 <html lang="es">
 <head>
 <meta charset="UTF-8">
@@ -34,6 +47,7 @@ footer{text-align:center;color:var(--mut);font:.85rem system-ui,sans-serif;paddi
 .rv{display:block;width:100%;text-align:left;background:transparent;color:var(--ink);border:1px solid var(--line);margin:6px 0;min-height:44px}
 .rv.ok{border-color:var(--acc)}
 .err{color:var(--bad);font-family:system-ui,sans-serif}
+.ayuda{font:.85rem system-ui,sans-serif;color:var(--mut);margin:-6px 0 10px}
 /* Capa visual: no intercepta toques ni cambia la disposición del examen. */
 #marcaAgua{position:fixed;inset:0;z-index:20;pointer-events:none;overflow:hidden;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:repeat(5,1fr)}
 #marcaAgua.hide{display:none}
@@ -42,6 +56,7 @@ footer{text-align:center;color:var(--mut);font:.85rem system-ui,sans-serif;paddi
 </head>
 <body>
 <main>
+<!-- ===== PANTALLA 1: ingreso y normas ===== -->
 <section id="intro" class="card">
  <h1 id="title"></h1>
  <h2>Normas del parcial</h2>
@@ -59,6 +74,7 @@ footer{text-align:center;color:var(--mut);font:.85rem system-ui,sans-serif;paddi
  <input type="text" id="nombre" autocomplete="off">
  <label class="f" for="codigo">Número de documento</label>
  <input type="text" id="codigo" autocomplete="off">
+ <p class="ayuda">Escríbelo sin puntos ni espacios.</p><!-- [CAMBIO 6] -->
  <label class="f" for="sem">Semestre</label>
  <select id="sem"></select>
  <div id="kbox"><label class="f" for="acceso">Clave de acceso (te la da el docente)</label>
@@ -67,11 +83,13 @@ footer{text-align:center;color:var(--mut);font:.85rem system-ui,sans-serif;paddi
  <p id="err" class="err"></p>
  <button id="start">Comenzar examen</button>
 </section>
+<!-- ===== PANTALLA 2: examen ===== -->
 <section id="exam" class="hide">
  <div class="bar"><span>Pregunta <b id="pos"></b></span><span>Tiempo <b id="time"></b></span><span class="v">Infracciones <b id="vc">0</b></span></div>
  <div class="card" id="qbox"></div>
  <div class="nav"><button id="prev" class="sec hide">Anterior</button><button id="next">Siguiente</button></div>
 </section>
+<!-- ===== PANTALLA 3: resultado ===== -->
 <section id="end" class="card hide"><h1 id="endt">Examen enviado</h1><p id="endp"></p><button id="retry" class="hide">Reintentar envío</button><div id="retro"></div></section>
 <footer>kerwin.Gutierrezing</footer>
 </main>
@@ -81,7 +99,7 @@ footer{text-align:center;color:var(--mut);font:.85rem system-ui,sans-serif;paddi
  <button id="resume">Continuar</button>
 </div></div>
 <script>
-/* ============ CONFIGURACIÓN ============ */
+/* ============ CONFIGURACIÓN (lo único que normalmente se edita) ============ */
 const CONFIG={
  titulo:"Examen de selección múltiple – Técnico Auxiliar en Enfermería",
  semestres:["1","2"],
@@ -92,9 +110,16 @@ const CONFIG={
  cierreSalidaSeg:7, // Duración real; se comprueba al regresar, no mientras está fuera.
  pantallaCompletaEnPC:true
 };
-const URLK=new URLSearchParams(location.search).get("k")||"";
+
+/* ============ UTILIDADES ============ */
+const URLK=new URLSearchParams(location.search).get("k")||"";   // clave por enlace: ...index.html?k=CLAVE
 const $=id=>document.getElementById(id);
 const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+// [CAMBIO 1] Misma regla que el servidor: "1.093.296.902" -> "1093296902".
+const normCed=v=>String(v??"").trim().toUpperCase().replace(/[\s.,\-]/g,"");
+// [CAMBIO 2] Identifica esta pestaña. Si la red falla y se reintenta "iniciar", el servidor reconoce
+// la misma sesión y devuelve el mismo examen en lugar de bloquear. Recargar la página genera otra.
+const SESION=(window.crypto&&crypto.randomUUID)?crypto.randomUUID():Date.now().toString(36)+Math.random().toString(36).slice(2);
 const ua=navigator.userAgent;
 const disp=/android/i.test(ua)?"android":(/iphone|ipad|ipod/i.test(ua)||(navigator.platform==="MacIntel"&&navigator.maxTouchPoints>1))?"ios":"pc";
 const needFS=disp==="pc"&&CONFIG.pantallaCompletaEnPC&&!!document.documentElement.requestFullscreen;
@@ -103,6 +128,8 @@ $("sem").innerHTML='<option value="">Selecciona tu semestre</option>'+CONFIG.sem
 if(URLK)$("kbox").style.display="none";
 $("regla").textContent=`Cada salida tiene una tolerancia de hasta ${CONFIG.toleranciaSeg} segundos. Si supera esa tolerancia, contará como una infracción. Si al regresar has permanecido fuera ${CONFIG.cierreSalidaSeg} segundos o más, la evaluación se cerrará y se enviará con las respuestas registradas.`;
 const shuf=a=>{a=a.slice();for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a};
+
+/* ============ COMUNICACIÓN CON APPS SCRIPT (3 intentos) ============ */
 const post = async (o) => {
   const maxIntentos = 3;
   let ultimoError = null;
@@ -146,16 +173,20 @@ const post = async (o) => {
 
   throw ultimoError || new Error("No se pudo conectar con el servidor.");
 };
- 
+
+/* ============ ESTADO DEL EXAMEN ============ */
 let P=[],idx=0,resp={},inc=0,salidas=[],activo=false,fin=false,rest=0,tm=null,tq=null,inicio=null,out=null,paquete=null;
 function ponerMarca(nombre){
  const el=$("marcaAgua");el.replaceChildren();
  for(let i=0;i<10;i++){const s=document.createElement("span");s.textContent=nombre;el.appendChild(s)}
  el.classList.remove("hide");
 }
+
+/* ============ INICIO: valida datos y pide las preguntas ============ */
 $("start").onclick=async()=>{
- const n=$("nombre").value.trim(),c=$("codigo").value.trim(),a=URLK||$("acceso").value.trim();
+ const n=$("nombre").value.trim(),c=normCed($("codigo").value),a=URLK||$("acceso").value.trim();   // [CAMBIO 1]
  if(!n||!c||!a){$("err").textContent="Completa nombre, documento y clave de acceso.";return}
+ if(c.length<5||c.length>15){$("err").textContent="Revisa tu número de documento: escríbelo sin puntos ni espacios.";return}   // [CAMBIO 3]
  if(!$("sem").value){$("err").textContent="Selecciona tu semestre.";return}
  if(!$("ok").checked){$("err").textContent="Confirma que has leído y aceptas las normas del parcial.";return}
  if(!CONFIG.endpoint){$("err").textContent="Falta configurar el endpoint en index.html.";return}
@@ -163,7 +194,8 @@ $("start").onclick=async()=>{
  if(needFS){try{await document.documentElement.requestFullscreen()}catch(_){}
   if(!document.fullscreenElement){$("err").textContent="No se pudo activar pantalla completa. Usa Chrome o Edge.";$("start").disabled=false;return}}
  let r;
- try{r=await post({accion:"iniciar",sem:$("sem").value,clave:a,codigo:c,nombre:n,dispositivo:disp})}catch(_){r={ok:false,error:"No hay conexión con el servidor. Revisa tu internet."}}
+ try{r=await post({accion:"iniciar",sem:$("sem").value,clave:a,codigo:c,nombre:n,dispositivo:disp,sesion:SESION})}   // [CAMBIO 2]
+ catch(_){r={ok:false,error:"No hay conexión con el servidor. Revisa tu internet."}}
  if(!r.ok){if(document.fullscreenElement)document.exitFullscreen().catch(()=>{});$("err").textContent=r.error||"No se pudo iniciar.";$("start").disabled=false;return}
  P=r.preguntas.map(p=>({...p,ord:shuf(p.o.map((_,i)=>i))}));
  inicio=new Date();rest=r.minutos*60;activo=true;$("err").textContent="";
@@ -171,6 +203,8 @@ $("start").onclick=async()=>{
  tm=setInterval(()=>{rest--;tick();if(rest<=0)cerrar("Se acabó el tiempo.")},1000);
  tick();mostrar();
 };
+
+/* ============ NAVEGACIÓN ENTRE PREGUNTAS Y REVISIÓN ============ */
 function tick(){const m=Math.floor(rest/60),s=rest%60;$("time").textContent=m+":"+String(s).padStart(2,"0")}
 let modo="preg";
 function mostrar(){
@@ -191,7 +225,9 @@ function revisar(){
 $("qbox").onclick=e=>{const b=e.target.closest(".rv");if(b&&modo==="rev"){idx=+b.dataset.i;mostrar()}};
 $("next").onclick=()=>modo==="rev"?cerrar("Examen completado."):avanzar();
 $("prev").onclick=()=>{if(modo==="rev"){idx=P.length-1;mostrar()}else if(idx>0){guardar();idx--;mostrar()}};
-/* Salidas: un solo registro por ausencia, aunque lleguen blur y visibilitychange. */
+
+/* ============ CONTROL DE SALIDAS (cambio de app/pestaña, pantalla completa) ============ */
+/* Un solo registro por ausencia, aunque lleguen blur y visibilitychange. */
 function salir(m){if(!activo||fin||out)return;out={m,t:Date.now()}}
 function volver(){
  if(!out||fin||document.hidden)return;
@@ -234,7 +270,8 @@ document.addEventListener("keyup",e=>{if(activo&&e.key==="PrintScreen"){try{navi
  salidas.push({motivo:"PrintScreen",segundos:0,hora:new Date().toISOString()});inc++;$("vc").textContent=inc;if(inc>=CONFIG.maxInfracciones)cerrar("Máximo de infracciones alcanzado.")}});
 window.addEventListener("beforeprint",()=>{if(activo)salidas.push({motivo:"intento de impresión",segundos:0,hora:new Date().toISOString()})});
 window.addEventListener("beforeunload",e=>{if(activo&&!fin){e.preventDefault();e.returnValue=""}});
-/* Cierre y envío: mismo contrato de datos con Apps Script. */
+
+/* ============ CIERRE, ENVÍO Y RETROALIMENTACIÓN ============ */
 function mostrarRetro(d){
  const el=$("retro");if(!d){el.innerHTML="<p>La retroalimentación por pregunta no está habilitada para este examen.</p>";return}
  const m={};d.forEach(x=>m[x.id]=x);
@@ -253,7 +290,8 @@ async function enviar(){
   mostrarRetro(r.detalle);return;
  }
  $("endt").textContent="No pudimos confirmar el envío";
- $("endp").textContent="Es posible que tus respuestas ya se hayan guardado. No cierres esta página: revisa tu internet y pulsa «Reintentar envío».";
+ // [CAMBIO 5] Si el servidor explicó el motivo (clave cambiada, ingreso no encontrado…), se muestra.
+ $("endp").textContent=(r&&r.error?r.error+" ":"")+"Es posible que tus respuestas ya se hayan guardado. No cierres esta página: revisa tu internet y pulsa «Reintentar envío».";
  $("retry").classList.remove("hide");
 }
 $("retry").onclick=enviar;
@@ -263,7 +301,9 @@ async function cerrar(motivo){
  $("warn").style.display="none";$("marcaAgua").classList.add("hide");
  if(document.fullscreenElement)document.exitFullscreen().catch(()=>{});
  $("exam").classList.add("hide");$("end").classList.remove("hide");
- paquete={accion:"enviar",sem:$("sem").value,clave:(URLK||$("acceso").value.trim()),nombre:$("nombre").value.trim(),codigo:$("codigo").value.trim(),dispositivo:disp,inicio:inicio.toISOString(),fin:new Date().toISOString(),motivoCierre:motivo,
+ paquete={accion:"enviar",sem:$("sem").value,clave:(URLK||$("acceso").value.trim()),nombre:$("nombre").value.trim(),
+ codigo:normCed($("codigo").value),   // [CAMBIO 4]
+ dispositivo:disp,inicio:inicio.toISOString(),fin:new Date().toISOString(),motivoCierre:motivo,
  infracciones:inc,salidas,respuestas:P.map(p=>({id:p.id,eleccion:resp[p.id]===undefined?-1:resp[p.id]}))};
  enviar();
 }
