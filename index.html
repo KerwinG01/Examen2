@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
   EXAMEN EN LÍNEA — index.html para GitHub Pages
-  Versión 2026-11-08-B (compatible con Code.gs versión 2026-11-08-B)
+  Versión 2026-11-08-B3 (compatible con Code.gs versión 2026-11-08-B3)
 
   CAMBIOS RESPECTO A LA VERSIÓN ANTERIOR (buscar "[CAMBIO n]" en el código):
    [CAMBIO 1] normCed(): limpia la cédula (quita puntos, espacios, guiones) antes de enviarla.
@@ -10,6 +10,10 @@
    [CAMBIO 4] El envío final usa la misma cédula normalizada.
    [CAMBIO 5] Si el envío falla, se muestra el motivo que devuelve el servidor.
    [CAMBIO 6] Texto de ayuda en el campo de documento ("sin puntos ni espacios").
+   [CAMBIO 7] Orden de PREGUNTAS barajado por estudiante (antes solo se barajaban las opciones).
+              La calificación no cambia: el servidor califica por id de pregunta, no por posición.
+   [CAMBIO 8] El temporizador usa el tiempo RESTANTE que calcula el servidor (importa en reingresos
+              "Liberado"). Si el servidor no lo envía, usa los minutos completos como antes.
   Todo lo demás (diseño, normas, control de salidas, temporizador) es igual al original.
 -->
 <html lang="es">
@@ -197,8 +201,9 @@ $("start").onclick=async()=>{
  try{r=await post({accion:"iniciar",sem:$("sem").value,clave:a,codigo:c,nombre:n,dispositivo:disp,sesion:SESION})}   // [CAMBIO 2]
  catch(_){r={ok:false,error:"No hay conexión con el servidor. Revisa tu internet."}}
  if(!r.ok){if(document.fullscreenElement)document.exitFullscreen().catch(()=>{});$("err").textContent=r.error||"No se pudo iniciar.";$("start").disabled=false;return}
- P=r.preguntas.map(p=>({...p,ord:shuf(p.o.map((_,i)=>i))}));
- inicio=new Date();rest=r.minutos*60;activo=true;$("err").textContent="";
+ P=shuf(r.preguntas).map(p=>({...p,ord:shuf(p.o.map((_,i)=>i))}));   // [CAMBIO 7] baraja preguntas y opciones
+ inicio=new Date();rest=Number.isFinite(r.segundos)?r.segundos:r.minutos*60;   // [CAMBIO 8]
+ activo=true;$("err").textContent="";
  $("intro").classList.add("hide");$("exam").classList.remove("hide");ponerMarca(n);
  tm=setInterval(()=>{rest--;tick();if(rest<=0)cerrar("Se acabó el tiempo.")},1000);
  tick();mostrar();
